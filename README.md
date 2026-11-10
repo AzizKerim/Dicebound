@@ -2,7 +2,7 @@
 
 > A tiny auto-battler where **your dice are your destiny**. Roll 2d6, let the **Dice Bag** decide what your hero does, level up, and take down **The Evil D100**. ⚔️
 
-▶️ **Play it here:** `[https://azizkerim.github.io/dicebound/](https://github.com/AzizKerim/Dicebound---Course--Agentic-Prototyping-for-Designers-by-Stone-Librande.git)`
+▶️ **Play it here:** [https://azizkerim.github.io/Dicebound/](https://azizkerim.github.io/Dicebound/)
 
 No install, no account, no downloads. It runs right in your browser, on desktop and phone. 📱💻
 
@@ -119,13 +119,15 @@ Swap one action in the bag for a better one, for example replacing a **Take Dama
 - 🎯 Numbers near **7** come up most often, so put your best actions there.
 - 🛡️ Dodge stores at most **1** charge, so do not wait for more.
 - 🧠 Watch the shuffle countdown and plan around it.
-- ⏩ Want it faster? Add `?speed=3` to the URL (for example `.../dicebound/?speed=3`).
+- ⏩ Want it faster? Add `?speed=3` to the URL (for example `https://azizkerim.github.io/Dicebound/?speed=3`).
 
 ---
 
 ## 📁 Project Structure
 
 ```
+index.html        # 🌐 The whole game in one file (what GitHub Pages serves)
+dice-roller.html  # 🎲 The original 3D dice roller warm-up
 dicebound/
 ├── index.html    # Page layout, styles and script loading
 ├── config.js     # ⚙️ All tunable gameplay values (damage, HP, bag, upgrades)
@@ -134,7 +136,7 @@ dicebound/
 ├── entities.js   # 🧙 Player, enemies and the boss
 ├── ui.js         # 🖥️ HUD, dice, bag, level-up cards and end screens
 ├── game.js       # 🔁 Main game loop and turn flow
-└── bundle.sh     # 📦 Optional script that merges everything into one HTML file
+└── bundle.sh     # 📦 Rebuilds the root index.html from these files
 ```
 
 Built with plain **HTML, CSS and JavaScript**, with no frameworks and no libraries. 🚫📦
@@ -145,7 +147,7 @@ Built with plain **HTML, CSS and JavaScript**, with no frameworks and no librari
 
 1. Download or clone this repo:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/dicebound.git
+   git clone https://github.com/AzizKerim/Dicebound.git
    ```
 2. Open `index.html` in your browser. 🎉
 
@@ -154,6 +156,8 @@ The scripts are plain (not modules), so a double-click is enough. No server need
 ### 🎛️ Balance it yourself
 
 Everything lives in **`config.js`**. Make enemies tougher, change the Dice Bag layout, speed up the shuffle, or add new upgrades without touching the game logic. 🔧
+
+After changing anything in `dicebound/`, run `sh dicebound/bundle.sh` to rebuild the root `index.html` before you push.
 
 ---
 
