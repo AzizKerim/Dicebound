@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2D6 Dice Roller</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #1f2937;
+      color: #1f2937;
+    }
+
+    canvas { display: block; touch-action: none; }
+    canvas.can-grab { cursor: grab; }
+    canvas.grabbing { cursor: grabbing; }
+
+    .hint {
+      position: fixed;
+      top: 2.9rem;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.8rem;
+      color: rgba(255, 255, 255, 0.55);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .title {
+      position: fixed;
+      top: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      color: rgba(255, 255, 255, 0.85);
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+
+    .panel {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 0.9rem 1.25rem 0.9rem 1.75rem;
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .total { text-align: center; min-width: 4.5rem; }
+
+    .total span {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    #total { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+    #breakdown { font-size: 0.75rem; color: #6b7280; min-height: 1em; }
+
+    button {
+      font: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      padding: 0.8rem 2.25rem;
+      border: none;
+      border-radius: 10px;
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s, opacity 0.15s;
+    }
+
+    button:hover:not(:disabled) { background: #1d4ed8; }
+    button:active:not(:disabled) { transform: scale(0.97); }
+    button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+    button:disabled { opacity: 0.55; cursor: default; }
+
+    #error {
+      display: none;
+      position: fixed;
+      inset: 0;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      color: #fff;
+      background: #1f2937;
+    }
+  </style>
+</head>
+<body>
+  <div class="title">2D6 DICE ROLLER</div>
+  <div class="hint">Drag a die gently to move it, or fling it to throw</div>
+
+  <div class="panel">
+    <div class="total" aria-live="polite">
+      <span>Total</span>
+      <div id="total">–</div>
+      <div id="breakdown"></div>
+    </div>
+    <button id="roll">Roll</button>
+  </div>
+
+  <div id="error">
+    Couldn't load three.js / cannon-es from the CDN.<br>
+    Check your internet connection and reload the page.
+  </div>
+
+  <!-- Load libraries from a CDN: no install or build step needed. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+      }
+    }
+  </script>
+
+  <script>
+    // If the module below never runs (e.g. CDN unreachable), show a message.
+    setTimeout(() => {
+      if (!window.__diceReady) document.getElementById("error").style.display = "flex";
+    }, 6000);
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import * as CANNON from "cannon-es";
+
+    window.__diceReady = true;
+
+    // ---------- Config ----------
+    const DIE_SIZE = 1;
+    const TABLE_HALF_X = 4;   // invisible walls keep dice on screen
+    const TABLE_HALF_Z = 3;
+
+    // Face values per BoxGeometry material slot: +X, -X, +Y, -Y, +Z, -Z.
+    // Opposite faces add up to 7, like a real die.
+    const FACE_VALUES = [1, 6, 2, 5, 3, 4];
+    const FACE_NORMALS = [
+      new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0),
+      new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
+    ];
+
+    // Pip positions on a 3x3 grid (cells 1–9, left-to-right, top-to-bottom).
+    const PIPS = {
+      1: [5], 2: [3, 7], 3: [3, 5, 7],
+      4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9]
+    };
+
+    // ---------- Renderer, scene, camera ----------
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#1f2937");
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 10, 7);
+    camera.lookAt(0, 0, 0);
+
+    // ---------- Lights ----------
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+
+    const sun = new THREE.DirectionalLight(0xffffff, 2);
+    sun.position.set(4, 10, 5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -7, right: 7, top: 7, bottom: -7, near: 1, far: 30 });
+    sun.shadow.camera.updateProjectionMatrix();
+    scene.add(sun);
+
+    // ---------- Table ----------
+    const table = new THREE.Mesh(
+      new THREE.PlaneGeometry(40, 40),
+      new THREE.MeshStandardMaterial({ color: "#2f6f4f", roughness: 0.95 })
+    );
+    table.rotation.x = -Math.PI / 2;
+    table.receiveShadow = true;
+    scene.add(table);
+
+    // ---------- Die face textures ----------
+    function makeFaceTexture(value) {
+      const size = 256;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+
+      // Face with a soft edge to suggest a bevel.
+      ctx.fillStyle = "#d9d4c7";
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = "#fbf8f1";
+      ctx.beginPath();
+      ctx.roundRect(8, 8, size - 16, size - 16, 36);
+      ctx.fill();
+
+      // Pips.
+      ctx.fillStyle = value === 1 ? "#b91c1c" : "#1f2937";
+      const r = value === 1 ? 30 : 22;
+      PIPS[value].forEach(cell => {
+        const col = (cell - 1) % 3;
+        const row = Math.floor((cell - 1) / 3);
+        const x = size * (0.25 + col * 0.25);
+        const y = size * (0.25 + row * 0.25);
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      return tex;
+    }
+
+    const dieMaterials = FACE_VALUES.map(v =>
+      new THREE.MeshStandardMaterial({ map: makeFaceTexture(v), roughness: 0.4 })
+    );
+    const dieGeometry = new THREE.BoxGeometry(DIE_SIZE, DIE_SIZE, DIE_SIZE);
+
+    // ---------- Physics world ----------
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -30, 0) });
+    world.allowSleep = false;
+
+    const tableMat = new CANNON.Material("table");
+    const dieMat = new CANNON.Material("die");
+    world.addContactMaterial(new CANNON.ContactMaterial(tableMat, dieMat, { friction: 0.3, restitution: 0.45 }));
+    world.addContactMaterial(new CANNON.ContactMaterial(dieMat, dieMat, { friction: 0.2, restitution: 0.5 }));
+
+    // Floor + 4 invisible walls (cannon planes face +Z by default).
+    function addPlane(position, euler) {
+      const body = new CANNON.Body({ mass: 0, material: tableMat, shape: new CANNON.Plane() });
+      body.position.set(...position);
+      body.quaternion.setFromEuler(...euler);
+      world.addBody(body);
+    }
+    addPlane([0, 0, 0], [-Math.PI / 2, 0, 0]);             // floor, normal +Y
+    addPlane([-TABLE_HALF_X, 0, 0], [0, Math.PI / 2, 0]);  // left wall, normal +X
+    addPlane([TABLE_HALF_X, 0, 0], [0, -Math.PI / 2, 0]);  // right wall, normal -X
+    addPlane([0, 0, -TABLE_HALF_Z], [0, 0, 0]);            // back wall, normal +Z
+    addPlane([0, 0, TABLE_HALF_Z], [0, Math.PI, 0]);       // front wall, normal -Z
+
+    // ---------- Dice ----------
+    const dice = [-1, 1].map(side => {
+      const mesh = new THREE.Mesh(dieGeometry, dieMaterials);
+      mesh.castShadow = true;
+      scene.add(mesh);
+
+      const half = DIE_SIZE / 2;
+      const body = new CANNON.Body({
+        mass: 1,
+        material: dieMat,
+        shape: new CANNON.Box(new CANNON.Vec3(half, half, half)),
+        linearDamping: 0.1,
+        angularDamping: 0.1
+      });
+      body.position.set(side * 1, half, 0);
+      world.addBody(body);
+
+      return { mesh, body, side };
+    });
+
+    function syncMeshes() {
+      dice.forEach(({ mesh, body }) => {
+        mesh.position.copy(body.position);
+        mesh.quaternion.copy(body.quaternion);
+      });
+    }
+
+    // Which face points most upward?
+    const tmpNormal = new THREE.Vector3();
+    function topFaceValue(mesh) {
+      let best = -Infinity, value = 1;
+      FACE_NORMALS.forEach((n, i) => {
+        const y = tmpNormal.copy(n).applyQuaternion(mesh.quaternion).y;
+        if (y > best) { best = y; value = FACE_VALUES[i]; }
+      });
+      return value;
+    }
+
+    // ---------- Rolling ----------
+    const rollBtn = document.getElementById("roll");
+    const totalEl = document.getElementById("total");
+    const breakdownEl = document.getElementById("breakdown");
+
+    let rolling = false;      // true while waiting for the dice to settle
+    let rollTime = 0;
+    let stillFrames = 0;
+
+    const rand = (min, max) => min + Math.random() * (max - min);
+
+    // Start watching for the dice to come to rest, then read the result.
+    function startSettling() {
+      rolling = true;
+      rollTime = 0;
+      stillFrames = 0;
+      rollBtn.disabled = true;
+      totalEl.textContent = "…";
+      breakdownEl.textContent = "";
+    }
+
+    function roll() {
+      if (rolling || drag) return;
+      startSettling();
+
+      dice.forEach(({ body, side }) => {
+        body.wakeUp();
+        // Small hop up from where the die is resting, plus a random tilt.
+        body.position.y = Math.max(body.position.y, DIE_SIZE / 2 + 0.05);
+        body.quaternion.setFromEuler(rand(0, Math.PI * 2), rand(0, Math.PI * 2), rand(0, Math.PI * 2));
+        // Leap upward with some random sideways drift.
+        body.velocity.set(rand(-2, 2) - side * 1, rand(13, 17), rand(-2, 2));
+        // Random spin force.
+        body.angularVelocity.set(rand(-20, 20), rand(-20, 20), rand(-20, 20));
+      });
+    }
+
+    // ---------- Drag & throw ----------
+    const DRAG_HEIGHT = DIE_SIZE / 2 + 0.6;  // how high a held die floats
+    const FOLLOW_STRENGTH = 18;              // how tightly the die follows the pointer
+    const THROW_SPEED = 5;                   // pointer speed (units/s) above which a release is a throw
+    const SAMPLE_WINDOW = 100;               // ms of pointer history used to measure release speed
+
+    const raycaster = new THREE.Raycaster();
+    const pointerNdc = new THREE.Vector2();
+    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -DRAG_HEIGHT);
+    const hit = new THREE.Vector3();
+    const canvas = renderer.domElement;
+
+    let drag = null; // { die, target: Vector3, heldQuat, samples: [{x, z, t}] }
+
+    function updatePointer(e) {
+      const rect = canvas.getBoundingClientRect();
+      pointerNdc.set(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1
+      );
+      raycaster.setFromCamera(pointerNdc, camera);
+    }
+
+    function dieUnderPointer() {
+      const hits = raycaster.intersectObjects(dice.map(d => d.mesh));
+      return hits.length ? dice.find(d => d.mesh === hits[0].object) : null;
+    }
+
+    // Where the pointer ray meets the floating drag plane, kept inside the walls.
+    function pointerOnDragPlane() {
+      if (!raycaster.ray.intersectPlane(dragPlane, hit)) return null;
+      const m = DIE_SIZE * 0.75;
+      hit.x = THREE.MathUtils.clamp(hit.x, -TABLE_HALF_X + m, TABLE_HALF_X - m);
+      hit.z = THREE.MathUtils.clamp(hit.z, -TABLE_HALF_Z + m, TABLE_HALF_Z - m);
+      return hit;
+    }
+
+    canvas.addEventListener("pointerdown", e => {
+      updatePointer(e);
+      const die = dieUnderPointer();
+      const point = die && pointerOnDragPlane();
+      if (!point) return;
+
+      canvas.setPointerCapture(e.pointerId);
+      canvas.classList.add("grabbing");
+      die.body.wakeUp();
+
+      drag = {
+        die,
+        pointerId: e.pointerId,
+        target: point.clone(),
+        heldQuat: die.body.quaternion.clone(), // keep the face as-is while held
+        samples: [{ x: point.x, z: point.z, t: performance.now() }]
+      };
+
+      // Holding a die pauses result reading until it's released.
+      rolling = false;
+      rollBtn.disabled = true;
+      totalEl.textContent = "…";
+      breakdownEl.textContent = "";
+    });
+
+    canvas.addEventListener("pointermove", e => {
+      updatePointer(e);
+      if (!drag) {
+        canvas.classList.toggle("can-grab", !!dieUnderPointer());
+        return;
+      }
+      if (e.pointerId !== drag.pointerId) return;
+      const point = pointerOnDragPlane();
+      if (!point) return;
+
+      drag.target.copy(point);
+      const now = performance.now();
+      drag.samples.push({ x: point.x, z: point.z, t: now });
+      while (drag.samples.length > 2 && now - drag.samples[0].t > SAMPLE_WINDOW) drag.samples.shift();
+    });
+
+    function release(e) {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const { body } = drag.die;
+
+      // Pointer velocity over the last ~100 ms (0 if the pointer had stopped).
+      const now = performance.now();
+      const recent = drag.samples.filter(s => now - s.t <= SAMPLE_WINDOW);
+      let vx = 0, vz = 0;
+      if (recent.length >= 2) {
+        const a = recent[0], b = recent[recent.length - 1];
+        const dt = Math.max((b.t - a.t) / 1000, 0.016);
+        vx = (b.x - a.x) / dt;
+        vz = (b.z - a.z) / dt;
+      }
+      const speed = Math.hypot(vx, vz);
+
+      if (speed < THROW_SPEED) {
+        // Gentle release: set it down level, same face up, no spin.
+        body.velocity.set(vx * 0.3, 0, vz * 0.3);
+        body.angularVelocity.set(0, 0, 0);
+        body.quaternion.copy(drag.heldQuat);
+      } else {
+        // Throw: keep the hand's momentum, add some lift and random spin scaled by speed.
+        const scale = Math.min(1, 25 / speed); // cap very fast flicks
+        body.velocity.set(vx * scale, Math.min(3 + speed * 0.35, 12), vz * scale);
+        const spin = Math.min(speed * 1.5, 30);
+        body.angularVelocity.set(rand(-spin, spin), rand(-spin, spin), rand(-spin, spin));
+      }
+
+      canvas.releasePointerCapture(e.pointerId);
+      canvas.classList.remove("grabbing");
+      drag = null;
+      startSettling();
+    }
+    canvas.addEventListener("pointerup", release);
+    canvas.addEventListener("pointercancel", release);
+
+    // While held, steer the die toward the pointer each physics step so it still
+    // collides with (and can nudge) the other die, and lock its orientation.
+    world.addEventListener("preStep", () => {
+      if (!drag) return;
+      const { body } = drag.die;
+      const t = drag.target;
+      body.velocity.set(
+        (t.x - body.position.x) * FOLLOW_STRENGTH,
+        (t.y - body.position.y) * FOLLOW_STRENGTH,
+        (t.z - body.position.z) * FOLLOW_STRENGTH
+      );
+      body.angularVelocity.set(0, 0, 0);
+      body.quaternion.copy(drag.heldQuat);
+    });
+
+    function checkSettled(dt) {
+      if (!rolling) return;
+      rollTime += dt;
+
+      const still = dice.every(({ body }) =>
+        body.velocity.length() < 0.05 && body.angularVelocity.length() < 0.05
+      );
+      stillFrames = still ? stillFrames + 1 : 0;
+
+      // Settled once both dice have been still for a moment (or after a safety timeout).
+      if ((rollTime > 0.5 && stillFrames > 20) || rollTime > 8) {
+        rolling = false;
+        rollBtn.disabled = false;
+        const values = dice.map(d => topFaceValue(d.mesh));
+        totalEl.textContent = values[0] + values[1];
+        breakdownEl.textContent = values.join(" + ");
+        rollBtn.focus();
+      }
+    }
+
+    rollBtn.addEventListener("click", roll);
+    document.addEventListener("keydown", e => {
+      if (e.code === "Space" && e.target === document.body) {
+        e.preventDefault();
+        roll();
+      }
+    });
+
+    // ---------- Resize ----------
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      // Pull the camera back on narrow screens so the table still fits.
+      const pullBack = Math.max(1, 1.4 / camera.aspect);
+      camera.position.set(0, 10 * pullBack, 7 * pullBack);
+      camera.lookAt(0, 0, 0);
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+    window.dispatchEvent(new Event("resize"));
+
+    // ---------- Loop ----------
+    const clock = new THREE.Clock();
+    function animate() {
+      const dt = Math.min(clock.getDelta(), 0.1);
+      world.step(1 / 60, dt, 5);
+      syncMeshes();
+      checkSettled(dt);
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    syncMeshes();
+    animate();
+  </script>
+</body>
+</html>
