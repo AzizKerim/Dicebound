@@ -6,6 +6,12 @@
 
 No install, no account, no downloads. It runs right in your browser, on desktop and phone. 📱💻
 
+## 🙌 Credits
+
+Designed and built by **Kerim** 🎮 as a class project, made with the help of **Claude** 🤖 inside VS Code.
+Course: Agentic Prototyping for Designers by Stone Librande
+Thanks for playing! May your rolls be high and your Take Damage slots be few. 🍀🎲
+
 ---
 
 ## 🕹️ How to Play
@@ -167,11 +173,3 @@ After changing anything in `dicebound/`, run `sh dicebound/bundle.sh` to rebuild
 2. 🌐 Open **Settings → Pages**.
 3. 🌿 Under *Build and deployment*, choose **Deploy from a branch**, branch **main**, folder **/ (root)**, then **Save**.
 4. ⏳ Wait a minute or two. Your game is live at `https://YOUR_USERNAME.github.io/REPO_NAME/`.
-
----
-
-## 🙌 Credits
-
-Designed and built by **Kerim** 🎮 as a class project, made with the help of **Claude** 🤖 inside VS Code.
-
-Thanks for playing! May your rolls be high and your Take Damage slots be few. 🍀🎲
